@@ -46,6 +46,10 @@ function Game() {
 
 	};
 
+	this.getAreDiceRolled = function() {
+		return areDiceRolled;
+	};
+
 
 
 	// Auction functions:
@@ -159,11 +163,13 @@ function Game() {
 		return true;
 	};
 
-	this.auctionPass = function() {
+	// Make auctionPass async to handle LLM bids
+	this.auctionPass = async function() {
 		if (highestbidder === 0) {
 			highestbidder = currentbidder;
 		}
 
+		// Loop to find the next valid bidder
 		while (true) {
 			currentbidder++;
 
@@ -171,38 +177,97 @@ function Game() {
 				currentbidder -= pcount;
 			}
 
+			// If we've looped back to the highest bidder, finalize the auction
 			if (currentbidder == highestbidder) {
 				finalizeAuction();
-				return;
-			} else if (player[currentbidder].bidding) {
-				var p = player[currentbidder];
-
-				if (!p.human) {
-					var bid = p.AI.bid(auctionproperty, highestbid);
-
-					if (bid === -1 || highestbid >= p.money) {
-						p.bidding = false;
-
-						window.alert(p.name + " exited the auction.");
-						continue;
-
-					} else if (bid === 0) {
-						window.alert(p.name + " passed.");
-						continue;
-
-					} else if (bid > 0) {
-						this.auctionBid(bid);
-						window.alert(p.name + " bid $" + bid + ".");
-						continue;
-					}
-					return;
-				} else {
-					break;
-				}
+				return; // End the async function
 			}
 
-		}
+			// Check if the current bidder is still in the auction
+			if (player[currentbidder].bidding) {
+				var p = player[currentbidder];
 
+				// Handle AI/LLM players differently
+				if (!p.human) {
+					// Check if it's an LLM player
+					if (p.isLLM) {
+						// Show thinking indicator for LLM
+						addAlert(p.name + " (LLM) is thinking about the bid...");
+						document.getElementById("currentbidder").innerHTML = p.name + " (Thinking...)";
+
+						// Get bid asynchronously from LLM
+						try {
+							const bidAmount = await p.AI.bid(auctionproperty, highestbid); // await the promise
+
+							// Process the LLM's decision
+							if (bidAmount === -1 || highestbid >= p.money) {
+								p.bidding = false;
+								addAlert(p.name + " (LLM) exited the auction.");
+								// Continue loop in the next iteration
+							} else if (bidAmount === 0) {
+								addAlert(p.name + " (LLM) passed.");
+								// Continue loop in the next iteration
+							} else if (bidAmount > 0) {
+								if (bidAmount > p.money) {
+									addAlert(p.name + " (LLM) attempted to bid $" + bidAmount + " but doesn't have enough money. Passing.");
+                                    // Treat insufficient funds as a pass for now
+                                } else if (bidAmount > highestbid) {
+									highestbid = bidAmount;
+									highestbidder = currentbidder;
+									document.getElementById("highestbid").innerHTML = parseInt(bidAmount, 10);
+									document.getElementById("highestbidder").innerHTML = p.name;
+									addAlert(p.name + " (LLM) bid $" + bidAmount + ".");
+                                    // LLM placed a bid, loop continues to next player
+								} else {
+                                    addAlert(p.name + " (LLM) attempted to bid $" + bidAmount + " but it was not higher than the current bid ($" + highestbid + "). Passing.");
+                                    // Treat invalid bid as a pass
+                                }
+							}
+						} catch (error) {
+							console.error("Error awaiting LLM bid:", error);
+							addAlert("Error getting bid from " + p.name + " (LLM). Passing.");
+							// Treat error as a pass, continue loop
+						}
+						// After handling LLM bid, continue the while loop to find the next human or process next AI
+						continue; // Explicitly continue to next iteration of while loop
+
+					} else { // Handle regular (non-LLM) AI
+						var bid = p.AI.bid(auctionproperty, highestbid);
+
+						if (bid === -1 || highestbid >= p.money) {
+							p.bidding = false;
+							window.alert(p.name + " exited the auction.");
+							continue;
+						} else if (bid === 0) {
+							window.alert(p.name + " passed.");
+							continue;
+						} else if (bid > 0) {
+							// Note: Using auctionBid might cause issues if it calls auctionPass recursively
+                            // Directly update state instead for AI?
+                            if (bid > p.money) {
+                                window.alert(p.name + " attempted to bid $" + bid + " but doesn't have enough money. Passing.");
+                            } else if (bid > highestbid) {
+                                highestbid = bid;
+                                highestbidder = currentbidder;
+                                document.getElementById("highestbid").innerHTML = parseInt(bid, 10);
+                                document.getElementById("highestbidder").innerHTML = p.name;
+                                window.alert(p.name + " bid $" + bid + ".");
+                            } else {
+                                window.alert(p.name + " attempted to bid $" + bid + " but it was not higher than the current bid ($" + highestbid + "). Passing.");
+                            }
+							continue;
+						}
+						// Should not reach here for standard AI if bid returns valid value
+						continue;
+					}
+				} else { // It's a human player's turn
+					// Break the loop to update UI for human input
+					break;
+				}
+			} // End if(player[currentbidder].bidding)
+		} // End while(true)
+
+		// Update UI for the human player whose turn it is (or if loop broken unexpectedly)
 		document.getElementById("currentbidder").innerHTML = player[currentbidder].name;
 		document.getElementById("bid").value = "";
 		document.getElementById("bid").style.color = "black";
@@ -231,6 +296,9 @@ function Game() {
 				document.getElementById("bid").focus();
 
 				if (player[currentbidder].human) {
+					// Calling async function without await - might need adjustment
+					// If auctionPass needs to complete before further action, this needs await
+					// But this context might not be async. Consider restructuring or direct state update.
 					this.auctionPass();
 				}
 			} else {
@@ -242,6 +310,7 @@ function Game() {
 
 	this.auctionExit = function() {
 		player[currentbidder].bidding = false;
+		// Calling async function without await - see comment in auctionBid
 		this.auctionPass();
 	};
 
@@ -1177,6 +1246,8 @@ function Trade(initiator, recipient, money, property, communityChestJailCard, ch
 var player = [];
 var pcount;
 var turn = 0, doublecount = 0;
+var llmPlayers = []; // Variable to store LLM player instances
+
 // Overwrite an array with numbers from one to the array's length in a random order.
 Array.prototype.randomize = function(length) {
 	length = (length || this.length);
@@ -1196,39 +1267,253 @@ Array.prototype.randomize = function(length) {
 	}
 };
 
-// function show(element) {
-	// // Element may be an HTML element or the id of one passed as a string.
-	// if (element.constructor == String) {
-		// element = document.getElementById(element);
-	// }
+// Function to set up LLM player options
+function setupLLMPlayerOptions() {
+  // Add LLM option to AI select dropdowns
+  for (var i = 1; i <= 8; i++) {
+    var aiSelect = document.getElementById("player" + i + "ai");
+    if (aiSelect) { // Check if element exists
+        // Add the LLM option if it doesn't exist
+        var llmOptionExists = Array.from(aiSelect.options).some(option => option.value === "2");
+        if (!llmOptionExists) {
+            var option = document.createElement("option");
+            option.value = "2";
+            option.text = "LLM AI";
+            aiSelect.appendChild(option);
+        }
 
-	// if (element.tagName == "INPUT" || element.tagName == "SPAN" || element.tagName == "LABEL") {
-		// element.style.display = "inline";
-	// } else {
-		// element.style.display = "block";
-	// }
-// }
+        aiSelect.addEventListener("change", updateLLMConfigVisibility); // Use named function directly
+    }
+  }
 
-// function hide(element) {
-	// // Element may be an HTML element or the id of one passed as a string.
-	// if (element.constructor == String) {
-		// document.getElementById(element).style.display = "none";
-	// } else {
-		// element.style.display = "none";
-	// }
-// }
+  // Initial check
+  updateLLMConfigVisibility();
+}
 
-function addAlert(alertText) {
+// Function to update LLM config visibility and player name input state
+function updateLLMConfigVisibility() {
+    var showConfig = false;
+    for (var i = 1; i <= 8; i++) {
+      var aiSelect = document.getElementById("player" + i + "ai");
+      var nameInput = document.getElementById("player" + i + "name");
+
+      if (aiSelect) {
+        // Check if LLM is selected for config visibility
+        if (aiSelect.value === "2") {
+          showConfig = true;
+        }
+
+        // Enable/disable name input
+        if (nameInput) {
+          nameInput.disabled = (aiSelect.value !== "0"); // Disable if not Human (value "0")
+        }
+      }
+    }
+
+    var llmConfigElement = document.getElementById("llm-config");
+    if (llmConfigElement) { // Check if element exists
+        llmConfigElement.style.display = showConfig ? "block" : "none";
+    }
+}
+
+
+// Function to test LLM connection
+function testLLMConnection() {
+  var apiKey = document.getElementById("openai-api-key").value;
+  var statusElement = document.getElementById("llm-connection-status");
+  
+  if (!apiKey) {
+    statusElement.textContent = "Please enter an API key";
+    statusElement.style.color = "red";
+    return;
+  }
+  
+  statusElement.textContent = "Testing connection...";
+  statusElement.style.color = "blue";
+  
+  // Ensure LLMPlayer class is available
+  if (typeof LLMPlayer === 'undefined') {
+      statusElement.textContent = "LLMPlayer class not found.";
+      statusElement.style.color = "red";
+      return;
+  }
+
+  // Create temporary LLM player for testing
+  try {
+    var testPlayer = new LLMPlayer({}); // Pass a dummy player object if needed
+    
+    testPlayer.setupOpenAI(apiKey).then(function() {
+      statusElement.textContent = "Connection successful!";
+      statusElement.style.color = "green";
+    }).catch(function(error) {
+      statusElement.textContent = "Connection failed: " + (error.message || error);
+      statusElement.style.color = "red";
+    });
+  } catch (error) {
+      statusElement.textContent = "Error creating LLMPlayer: " + (error.message || error);
+      statusElement.style.color = "red";
+  }
+}
+
+// Modify the play function to pause for human readability when LLM makes moves
+var originalPlayFunction = play;
+play = function() {
+  var isLLMTurn = false;
+  var p = player[turn]; // Get current player
+  
+  // Check if it's an LLM player's turn by checking the AI type value or the existence in llmPlayers array
+  if (document.getElementById("player" + turn + "ai")?.value === "2") {
+      isLLMTurn = true;
+  }
+  // Alternatively, if llmPlayers array is reliably populated:
+  // for (var i = 0; i < llmPlayers.length; i++) {
+  //   if (llmPlayers[i].index === turn) {
+  //     isLLMTurn = true;
+  //     break;
+  //   }
+  // }
+  
+  // If it's an LLM's turn, add a slight delay for readability
+  if (isLLMTurn && p && !p.human) { // Ensure it's an AI turn
+    // Show thinking indicator
+    addAlert(player[turn].name + " is thinking...");
+    
+    // Disable UI elements during thinking? (Optional)
+    // document.getElementById("nextbutton").disabled = true; 
+    
+    // Slight delay before AI move
+    setTimeout(function() {
+      // Re-enable UI elements? (Optional)
+      // document.getElementById("nextbutton").disabled = false;
+      originalPlayFunction();
+    }, 1000); // 1 second delay
+  } else {
+    originalPlayFunction();
+  }
+};
+
+// Modify the setup function to handle LLM players
+var originalSetupFunction = setup;
+setup = function() {
+  // Clear LLM players array
+  llmPlayers = [];
+  
+  // Reset game history (assuming gameHistory is defined elsewhere)
+  if (window.gameHistory && typeof window.gameHistory.clear === 'function') {
+    window.gameHistory.clear();
+  } else {
+    console.warn("gameHistory object or clear method not found.");
+  }
+
+  // Get LLM config - needed *after* originalSetup sets pcount
+  // var apiKey = document.getElementById("openai-api-key").value;
+  // var model = document.getElementById("llm-model").value;
+  
+  // Now call the original setup function
+  // This will populate the player array and pcount
+  originalSetupFunction();
+  
+  // After setup, initialize LLM players
+  var apiKey = document.getElementById("openai-api-key")?.value; // Use optional chaining
+  var model = document.getElementById("llm-model")?.value;
+  
+  // Ensure LLMPlayer class is available
+  if (typeof LLMPlayer === 'undefined') {
+      console.error("LLMPlayer class is not defined. Cannot initialize LLM players.");
+      return; 
+  }
+
+  for (var i = 1; i <= pcount; i++) {
+    // Check if the select element exists and its value is "2"
+    var aiSelect = document.getElementById("player" + i + "ai");
+    if (aiSelect && aiSelect.value === "2") {
+        if (!apiKey) {
+            console.error("OpenAI API key is missing. Cannot initialize LLM player " + i);
+            // Optionally revert this player to human or basic AI, or show an error
+            player[i].human = true; 
+            player[i].AI = null;
+            popup("<p>Error: OpenAI API Key is required for LLM players. Player " + player[i].name + " reverted to human.</p>");
+            continue; // Skip LLM initialization for this player
+        }
+        
+        try {
+            var llmPlayerInstance = new LLMPlayer(player[i], model); // Pass model here
+            llmPlayerInstance.setupOpenAI(apiKey);
+            
+            // Store the LLM player instance
+            llmPlayers.push({ index: i, player: llmPlayerInstance });
+            
+            // Replace AI object with LLM player
+            player[i].AI = llmPlayerInstance; // This assumes player[i].AI was previously null or a different AI object
+            player[i].human = false; // Ensure player is marked as not human
+             addAlert("LLM Player " + player[i].name + " initialized.");
+        } catch (error) {
+            console.error("Error initializing LLM Player " + i + ":", error);
+            popup("<p>Error initializing LLM Player " + player[i].name + ". Reverted to human. Check console for details.</p>");
+            // Revert to human on error
+            player[i].human = true; 
+            player[i].AI = null;
+        }
+    } else if (aiSelect && aiSelect.value === "1") {
+        // Ensure standard AI is initialized if needed
+        if (typeof AITest !== 'undefined' && !player[i].AI) { // Check if AITest exists
+             player[i].AI = new AITest(player[i]);
+             player[i].human = false;
+        } else if (typeof AITest === 'undefined') {
+             console.warn("AITest class not found. Cannot initialize standard AI for player " + i);
+             player[i].human = true; // Revert to human if standard AI class is missing
+        }
+    } else {
+        // Ensure human players have AI set to null
+        player[i].human = true;
+        player[i].AI = null;
+    }
+  }
+  // Ensure play() is called if setup logic expects it (originalSetup might call play)
+  // If originalSetup calls play(), this might need restructuring. Check originalSetup's logic.
+  // If setup is only called once at the start, this is likely fine.
+};
+
+
+function addAlert(alertText, type) {
 	$alert = $("#alert");
+	
+	// Default type is 'game-alert' if not specified
+	type = type || 'game-alert';
+	
+	// Create a div with the appropriate class based on the message type
+	var $alertDiv = $(document.createElement("div"))
+	                .addClass(type)
+	                .text(alertText);
+	
+	// Append the div to the alert container
+	$alertDiv.appendTo($alert);
 
-	$(document.createElement("div")).text(alertText).appendTo($alert);
-
-	// Animate scrolling down alert element.
+	// Animate scrolling down alert element
 	$alert.stop().animate({"scrollTop": $alert.prop("scrollHeight")}, 1000);
 
 	if (!player[turn].human) {
 		player[turn].AI.alertList += "<div>" + alertText + "</div>";
 	}
+}
+
+// Function to format and display LLM tool calls nicely
+function addToolCallAlert(functionName, args) {
+    let formattedArgs = '';
+    
+    // Try to format the args object nicely if possible
+    if (args && typeof args === 'object') {
+        try {
+            formattedArgs = JSON.stringify(args, null, 2);
+        } catch (e) {
+            formattedArgs = args.toString();
+        }
+    } else if (typeof args === 'string') {
+        formattedArgs = args;
+    }
+    
+    const alertText = `${functionName}(${formattedArgs})`;
+    addAlert(alertText, 'llm-tool-call');
 }
 
 function popup(HTML, action, option) {
@@ -1789,7 +2074,7 @@ function addamount(amount, cause) {
 
 	p.money += amount;
 
-	addAlert(p.name + " received $" + amount + " from " + cause + ".");
+	addAlert(p.name + " received $" + amount + " from " + cause + ".", 'player-action');
 }
 
 function subtractamount(amount, cause) {
@@ -1797,12 +2082,12 @@ function subtractamount(amount, cause) {
 
 	p.pay(amount, 0);
 
-	addAlert(p.name + " lost $" + amount + " from " + cause + ".");
+	addAlert(p.name + " lost $" + amount + " from " + cause + ".", 'player-action');
 }
 
 function gotojail() {
 	var p = player[turn];
-	addAlert(p.name + " was sent directly to jail.");
+	addAlert(p.name + " was sent directly to jail.", 'player-action');
 	document.getElementById("landed").innerHTML = "You are in jail.";
 
 	p.jail = true;
@@ -1846,7 +2131,7 @@ function payeachplayer(amount, cause) {
 		}
 	}
 
-	addAlert(p.name + " lost $" + total + " from " + cause + ".");
+	addAlert(p.name + " lost $" + total + " from " + cause + ".", 'player-action');
 }
 
 function collectfromeachplayer(amount, cause) {
@@ -1868,7 +2153,7 @@ function collectfromeachplayer(amount, cause) {
 		}
 	}
 
-	addAlert(p.name + " received $" + total + " from " + cause + ".");
+	addAlert(p.name + " received $" + total + " from " + cause + ".", 'player-action');
 }
 
 function advance(destination, pass) {
@@ -1880,7 +2165,7 @@ function advance(destination, pass) {
 		} else {
 			p.position = pass;
 			p.money += 200;
-			addAlert(p.name + " collected a $200 salary for passing GO.");
+			addAlert(p.name + " collected a $200 salary for passing GO.", 'player-action');
 		}
 	}
 	if (p.position < destination) {
@@ -1888,7 +2173,7 @@ function advance(destination, pass) {
 	} else {
 		p.position = destination;
 		p.money += 200;
-		addAlert(p.name + " collected a $200 salary for passing GO.");
+		addAlert(p.name + " collected a $200 salary for passing GO.", 'player-action');
 	}
 
 	land();
@@ -1904,7 +2189,7 @@ function advanceToNearestUtility() {
 	} else if (p.position >= 28) {
 		p.position = 12;
 		p.money += 200;
-		addAlert(p.name + " collected a $200 salary for passing GO.");
+		addAlert(p.name + " collected a $200 salary for passing GO.", 'player-action');
 	}
 
 	land(true);
@@ -1922,7 +2207,7 @@ function advanceToNearestRailroad() {
 	} else if (p.position >= 35) {
 		p.position = 5;
 		p.money += 200;
-		addAlert(p.name + " collected a $200 salary for passing GO.");
+		addAlert(p.name + " collected a $200 salary for passing GO.", 'player-action');
 	}
 
 	land(true);
@@ -1947,9 +2232,9 @@ function streetrepairs(houseprice, hotelprice) {
 
 		// If function was called by Community Chest.
 		if (houseprice === 40) {
-			addAlert(p.name + " lost $" + cost + " to Community Chest.");
+			addAlert(p.name + " lost $" + cost + " to Community Chest.", 'player-action');
 		} else {
-			addAlert(p.name + " lost $" + cost + " to Chance.");
+			addAlert(p.name + " lost $" + cost + " to Chance.", 'player-action');
 		}
 	}
 
@@ -1969,7 +2254,7 @@ function payfifty() {
 	p.position = 10;
 	p.pay(50, 0);
 
-	addAlert(p.name + " paid the $50 fine to get out of jail.");
+	addAlert(p.name + " paid the $50 fine to get out of jail.", 'player-action');
 	updateMoney();
 	updatePosition();
 }
@@ -2012,7 +2297,7 @@ function useJailCard() {
 		}
 	}
 
-	addAlert(p.name + " used a \"Get Out of Jail Free\" card.");
+	addAlert(p.name + " used a \"Get Out of Jail Free\" card.", 'player-action');
 	updateOwned();
 	updatePosition();
 }
@@ -2045,17 +2330,17 @@ function buyHouse(index) {
 
 			} else {
 				sq.house++;
-				addAlert(p.name + " placed a house on " + sq.name + ".");
+				addAlert(p.name + " placed a house on " + sq.name + ".", 'player-action');
 			}
 
 		} else {
 			if (hotelSum >= 12) {
-				return;
+				return false; // Added explicit return false
 
 			} else {
 				sq.house = 5;
 				sq.hotel = 1;
-				addAlert(p.name + " placed a hotel on " + sq.name + ".");
+				addAlert(p.name + " placed a hotel on " + sq.name + ".", 'player-action');
 			}
 		}
 
@@ -2063,6 +2348,8 @@ function buyHouse(index) {
 
 		updateOwned();
 		updateMoney();
+		
+		return true; // Explicitly return true when successful
 	}
 }
 
@@ -2073,10 +2360,10 @@ function sellHouse(index) {
 	if (sq.hotel === 1) {
 		sq.hotel = 0;
 		sq.house = 4;
-		addAlert(p.name + " sold the hotel on " + sq.name + ".");
+		addAlert(p.name + " sold the hotel on " + sq.name + ".", 'player-action');
 	} else {
 		sq.house--;
-		addAlert(p.name + " sold a house on " + sq.name + ".");
+		addAlert(p.name + " sold a house on " + sq.name + ".", 'player-action');
 	}
 
 	p.money += sq.houseprice * 0.5;
@@ -2223,14 +2510,15 @@ function buy() {
 
 		property.owner = turn;
 		updateMoney();
-		addAlert(p.name + " bought " + property.name + " for " + property.pricetext + ".");
+		addAlert(p.name + " bought " + property.name + " for " + property.pricetext + ".", 'player-action');
 
 		updateOwned();
 
 		$("#landed").hide();
-
+		return true;
 	} else {
 		popup("<p>" + p.name + ", you need $" + (property.price - p.money) + " more to buy " + property.name + ".</p>");
+		return false;
 	}
 }
 
@@ -2251,7 +2539,7 @@ function mortgage(index) {
 	document.getElementById("mortgagebutton").value = "Unmortgage for $" + unmortgagePrice;
 	document.getElementById("mortgagebutton").title = "Unmortgage " + sq.name + " for $" + unmortgagePrice + ".";
 
-	addAlert(p.name + " mortgaged " + sq.name + " for $" + mortgagePrice + ".");
+	addAlert(p.name + " mortgaged " + sq.name + " for $" + mortgagePrice + ".", 'player-action');
 	updateOwned();
 	updateMoney();
 
@@ -2273,7 +2561,7 @@ function unmortgage(index) {
 	document.getElementById("mortgagebutton").value = "Mortgage for $" + mortgagePrice;
 	document.getElementById("mortgagebutton").title = "Mortgage " + sq.name + " for $" + mortgagePrice + ".";
 
-	addAlert(p.name + " unmortgaged " + sq.name + " for $" + unmortgagePrice + ".");
+	addAlert(p.name + " unmortgaged " + sq.name + " for $" + unmortgagePrice + ".", 'player-action');
 	updateOwned();
 	return true;
 }
@@ -2291,7 +2579,7 @@ function land(increasedRent) {
 	$("#landed").show();
 	document.getElementById("landed").innerHTML = "You landed on " + s.name + ".";
 	s.landcount++;
-	addAlert(p.name + " landed on " + s.name + ".");
+	addAlert(p.name + " landed on " + s.name + ".", 'player-action');
 
 	// Allow player to buy the property on which he landed.
 	if (s.price !== 0 && s.owner === 0) {
@@ -2369,7 +2657,7 @@ function land(increasedRent) {
 			}
 		}
 
-		addAlert(p.name + " paid $" + rent + " rent to " + player[s.owner].name + ".");
+		addAlert(p.name + " paid $" + rent + " rent to " + player[s.owner].name + ".", 'player-action');
 		p.pay(rent, s.owner);
 		player[s.owner].money += rent;
 
@@ -2434,9 +2722,9 @@ function roll() {
 	doublecount++;
 
 	if (die1 == die2) {
-		addAlert(p.name + " rolled " + (die1 + die2) + " - doubles.");
+		addAlert(p.name + " rolled " + (die1 + die2) + " - doubles.", 'player-action');
 	} else {
-		addAlert(p.name + " rolled " + (die1 + die2) + ".");
+		addAlert(p.name + " rolled " + (die1 + die2) + ".", 'player-action');
 	}
 
 	if (die1 == die2 && !p.jail) {
@@ -2450,7 +2738,7 @@ function roll() {
 		} else if (doublecount === 3) {
 			p.jail = true;
 			doublecount = 0;
-			addAlert(p.name + " rolled doubles three times in a row.");
+			addAlert(p.name + " rolled doubles three times in a row.", 'player-action');
 			updateMoney();
 
 
@@ -2486,7 +2774,7 @@ function roll() {
 			p.position = 10 + die1 + die2;
 			doublecount = 0;
 
-			addAlert(p.name + " rolled doubles to get out of jail.");
+			addAlert(p.name + " rolled doubles to get out of jail.", 'player-action');
 
 			land();
 		} else {
@@ -2525,7 +2813,7 @@ function roll() {
 		if (p.position >= 40) {
 			p.position -= 40;
 			p.money += 200;
-			addAlert(p.name + " collected a $200 salary for passing GO.");
+			addAlert(p.name + " collected a $200 salary for passing GO.", 'player-action');
 		}
 
 		land();
@@ -2547,7 +2835,7 @@ function play() {
 
 	document.getElementById("pname").innerHTML = p.name;
 
-	addAlert("It is " + p.name + "'s turn.");
+	addAlert("It is " + p.name + "'s turn.", 'player-action');
 
 	// Check for bankruptcy.
 	p.pay(0, p.creditor);
@@ -2576,12 +2864,12 @@ function play() {
 		document.getElementById("nextbutton").title = "Roll the dice. If you throw doubles, you will get out of jail.";
 
 		if (p.jailroll === 0)
-			addAlert("This is " + p.name + "'s first turn in jail.");
+			addAlert("This is " + p.name + "'s first turn in jail.", 'player-action');
 		else if (p.jailroll === 1)
-			addAlert("This is " + p.name + "'s second turn in jail.");
+			addAlert("This is " + p.name + "'s second turn in jail.", 'player-action');
 		else if (p.jailroll === 2) {
 			document.getElementById("landed").innerHTML += "<div>NOTE: If you do not throw doubles after this roll, you <i>must</i> pay the $50 fine.</div>";
-			addAlert("This is " + p.name + "'s third turn in jail.");
+			addAlert("This is " + p.name + "'s third turn in jail.", 'player-action');
 		}
 
 		if (!p.human && p.AI.postBail()) {

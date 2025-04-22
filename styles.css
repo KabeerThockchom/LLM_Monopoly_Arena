@@ -1,7 +1,7 @@
 body {
 	background: #FFFFFF;
 	margin: 0px;
-	min-width: 1075px;
+	min-width: 1400px;
 }
 
 td {
@@ -83,12 +83,15 @@ td {
 #control {
 	position: absolute;
 	z-index: 9;
-	top: 250px;
-	left: 250px;
-	border: 2px solid black;
-	padding: 10px;
+	top: 200px;
+	left: 200px;
+	border: 2px solid #3d5afe;
+	border-radius: 8px;
+	padding: 15px;
 	display: none;
 	background-color: white;
+	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+	min-width: 400px;
 }
 
 #quickstats {
@@ -106,25 +109,27 @@ td {
 }
 
 #landed {
-	padding: 3px;
-	border: 1px solid gray;
+	padding: 5px;
+	border: 1px solid #ddd;
 	border-top: none;
-	width: 302px;
-
+	width: 400px;
 	margin: 0px;
 	text-align: center;
+	border-radius: 0 0 5px 5px;
 }
 
 #alert {
-	width: 307px;
-	height: 92px;
+	width: 400px;
+	height: 150px;
 	margin: 0px;
-	padding-left: 1px;
-	border: 1px solid gray;
+	padding: 8px;
+	border: 1px solid #ddd;
+	border-radius: 5px;
 	font-family: Consolas, "Courier New", monospace;
 	font-size: 13px;
 	background-color: #FFFFFF;
 	overflow-y: scroll;
+	line-height: 1.4;
 }
 
 #manage {
@@ -822,4 +827,64 @@ td {
 	top: 0px;
 	width: 15px;
 
+}
+
+/* New styles for main layout and LLM Log Panel - Panel will be hidden */
+#main-container {
+    position: relative; /* Keep relative positioning for other absolute elements */
+    padding-right: 0; /* Remove the padding that was making space for the panel */
+    box-sizing: border-box;
+    min-height: 100vh; /* Keep this for vertical spacing */
+}
+
+#game-area {
+    flex-grow: 1; /* Allow game area to take up available space */
+    margin-right: 0; /* Remove right margin that was creating space for panel */
+    width: 100%; /* Take up full width */
+    float: left; /* Maintain existing layout behavior */
+}
+
+/* Hide the LLM log panel */
+#llm-log-panel {
+    display: none; /* Hide the panel completely */
+}
+
+/* Restore moneybar position */
+#moneybarwrap {
+    position: absolute;
+    min-width: 135px;
+    top: 0px;
+    right: 0px; /* Return to original position */
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* New styles for different message types */
+#alert .player-action {
+	padding: 5px;
+	border-left: 3px solid #3d5afe;
+	margin-bottom: 5px;
+	background-color: #f5f5f5;
+}
+
+#alert .llm-thinking {
+	padding: 5px;
+	border-left: 3px solid #00c853;
+	margin-bottom: 5px;
+	background-color: #f1f8e9;
+	font-style: italic;
+}
+
+#alert .llm-tool-call {
+	padding: 5px;
+	border-left: 3px solid #ff9100;
+	margin-bottom: 5px;
+	background-color: #fff8e1;
+	font-family: monospace;
+}
+
+#alert .game-alert {
+	padding: 5px;
+	border-left: 3px solid #d50000;
+	margin-bottom: 5px;
 }
